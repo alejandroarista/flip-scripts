@@ -236,28 +236,53 @@ try {
         }
         Write-Log "Download complete ($zipSize bytes)."
 
-        # -- Extract zip -------------------------------------------------------
+        # -- Extract zip using 7-Zip -----------------------------------------------
         $extractPath = "$LocalFolder\extract_temp"
         if (Test-Path $extractPath) { Remove-Item $extractPath -Recurse -Force -ErrorAction SilentlyContinue }
         New-Item -ItemType Directory -Path $extractPath -Force | Out-Null
 
+        # Find 7-Zip executable
+        $sevenZip = $null
+        $sevenZipPaths = @(
+            "C:\Program Files\7-Zip\7z.exe",
+            "C:\Program Files (x86)\7-Zip\7z.exe"
+        )
+        foreach ($path in $sevenZipPaths) {
+            if (Test-Path $path) { $sevenZip = $path; break }
+        }
+
+        # If 7-Zip not found, download and install silently
+        if (-not $sevenZip) {
+            Write-Log "7-Zip not found. Downloading installer..."
+            $szInstaller = "$LocalFolder\7z-installer.exe"
+            $szUrl = "https://raw.githubusercontent.com/alejandroarista/flip-scripts/main/7z2409-x64.exe"
+            try {
+                Invoke-WebRequest -Uri $szUrl -OutFile $szInstaller -UseBasicParsing -UserAgent "Mozilla/5.0" -ErrorAction Stop
+                Write-Log "Installing 7-Zip silently..."
+                Start-Process -FilePath $szInstaller -ArgumentList "/S" -Wait -NoNewWindow
+                Remove-Item $szInstaller -Force -ErrorAction SilentlyContinue
+                foreach ($path in $sevenZipPaths) {
+                    if (Test-Path $path) { $sevenZip = $path; break }
+                }
+                if (-not $sevenZip) { throw "7-Zip installation failed." }
+                Write-Log "7-Zip installed successfully."
+            }
+            catch {
+                Write-Log "Could not install 7-Zip: $_" "ERROR"
+                Remove-Item $zipLocal    -Force -ErrorAction SilentlyContinue
+                Remove-Item $extractPath -Force -ErrorAction SilentlyContinue
+                exit 1
+            }
+        }
+
+        Write-Log "Extracting with 7-Zip..."
         try {
-            $shell   = New-Object -ComObject Shell.Application
-            $zipObj  = $shell.NameSpace($zipLocal)
-            $destObj = $shell.NameSpace($extractPath)
+            $szArgs = "x `"$zipLocal`" -o`"$extractPath`" -p`"$ZipPassword`" -y"
+            $proc   = Start-Process -FilePath $sevenZip -ArgumentList $szArgs -Wait -NoNewWindow -PassThru
+            if ($proc.ExitCode -ne 0) { throw "7-Zip exited with code $($proc.ExitCode)." }
 
-            if ($null -eq $zipObj) { throw "Could not open zip." }
-
-            $destObj.CopyHere($zipObj.Items(), 1044)
-
-            $timeout = 60; $elapsed = 0; $interval = 2
-            do {
-                Start-Sleep -Seconds $interval
-                $elapsed += $interval
-                $extracted = @(Get-ChildItem $extractPath -Recurse -File -ErrorAction SilentlyContinue)
-            } while ($extracted.Count -eq 0 -and $elapsed -lt $timeout)
-
-            if ($extracted.Count -eq 0) { throw "Extraction timed out or produced no files." }
+            $extracted = @(Get-ChildItem $extractPath -Recurse -File -ErrorAction SilentlyContinue)
+            if ($extracted.Count -eq 0) { throw "Extraction produced no files." }
             Write-Log "Extracted $($extracted.Count) file(s)."
         }
         catch {
@@ -265,11 +290,6 @@ try {
             Remove-Item $zipLocal    -Force -Recurse -ErrorAction SilentlyContinue
             Remove-Item $extractPath -Force -Recurse -ErrorAction SilentlyContinue
             exit 1
-        }
-        finally {
-            try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($destObj) | Out-Null } catch { }
-            try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($zipObj)  | Out-Null } catch { }
-            try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($shell)   | Out-Null } catch { }
         }
 
         # -- Install files preserving folder structure -------------------------
