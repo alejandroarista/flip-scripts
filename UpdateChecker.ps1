@@ -255,7 +255,7 @@ try {
         if (-not $sevenZip) {
             Write-Log "7-Zip not found. Downloading installer..."
             $szInstaller = "$LocalFolder\7z-installer.exe"
-            $szUrl = "https://raw.githubusercontent.com/alejandroarista/flip-scripts/main/7z2409-x64.exe"
+            $szUrl = "https://www.7-zip.org/a/7z2409-x64.exe"
             try {
                 Invoke-WebRequest -Uri $szUrl -OutFile $szInstaller -UseBasicParsing -UserAgent "Mozilla/5.0" -ErrorAction Stop
                 Write-Log "Installing 7-Zip silently..."
